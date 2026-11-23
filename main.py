@@ -27,6 +27,5 @@ async def menu():
         elif cs == "5":
             await token_checker()
 
-
 if __name__ == "__main__":
     asyncio.run(menu())

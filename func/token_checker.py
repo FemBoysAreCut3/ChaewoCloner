@@ -7,26 +7,16 @@ async def token_checker():
     valid = 0
     invalid = 0
 
-    with open('token.txt')as f:
-        token = f.readline().strip()
-    
-    headers = {
-        "Authorization": token
-    }
-
-    url = "https://discord.com/api/v9/users/@me"
-
-    response = requests.get(url, headers=headers)
+    response = api("GET", "/users/@me")
+    t = current_time()
 
     if response.status_code == 200:
         valid += 1
-        t = current_time()
         print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Token is Valid")
     else:
-        t = current_time()
         invalid += 1
         print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Token is Invalid")
-    
+
     final = f"""
                 {b}[{w}{valid}{b}]{w} {g}Valid{w}
                 {b}[{w}{invalid}{b}]{w} {r}Invalid{w}

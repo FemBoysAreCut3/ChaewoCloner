@@ -1,5 +1,7 @@
 from utils.innit import *
-import time
+
+def log(symbol_color, symbol, text):
+    print(f"                {b}[{w}{current_time()}{b}]{w} {symbol_color}[{symbol}]{w} {text}")
 
 async def cloner():
     clear()
@@ -9,204 +11,150 @@ async def cloner():
     clear()
     logo()
 
-    with open('token.txt') as f:
-        token = f.readline().strip()
-
-    headers = {
-        "Authorization": token,
-        "Content-Type": "application/json"
-    }
-
-    channel_url = f"https://discord.com/api/v9/guilds/{p_id}/channels"
-    response = requests.get(channel_url, headers=headers)
-
+    response = api("GET", f"/guilds/{p_id}/channels")
     if response.status_code == 200:
-        channels = response.json() 
-        for channel in channels:
-            delete_channel_url = f"https://discord.com/api/v9/channels/{channel['id']}"
-            delete_channel = requests.delete(delete_channel_url, headers=headers)
-            if delete_channel.status_code in [200, 204]:  
-                t = current_time()
-                print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Deleted channel: {channel['name']}")
-    
+        for channel in response.json():
+            d = api("DELETE", f"/channels/{channel['id']}")
+            if d.status_code in (200, 204):
+                log(g, "+", f"Deleted channel: {channel['name']}")
             else:
-                t = current_time()
-                print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to delete channel {channel['name']}: {delete_channel.status_code}")
+                log(r, "-", f"Failed to delete channel {channel['name']}: {d.status_code}")
     else:
-        t = current_time()
-        print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to fetch channels: {response.status_code}")
+        log(r, "-", f"Failed to fetch channels: {response.status_code}")
 
-    role_url = f"https://discord.com/api/v9/guilds/{p_id}/roles"
-    response = requests.get(role_url, headers=headers)
-
+    response = api("GET", f"/guilds/{p_id}/roles")
     if response.status_code == 200:
-        roles = response.json()
-        for role in roles:
-            delete_role_url = f"https://discord.com/api/v9/guilds/{p_id}/roles/{role['id']}"
-            while True:  
-                delete_response = requests.delete(delete_role_url, headers=headers)
-                if delete_response.status_code in [200, 204]:
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Deleted role: {role['name']}")
-                    break
-                elif delete_response.status_code == 429:
-                    retry_after = int(delete_response.headers.get("Retry-After", 1))
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {y}[x]{w} Rate-limited. Retrying after {retry_after} seconds")
-                    time.sleep(retry_after)
-                elif delete_response.status_code == 400:
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {y}[x]{w} Skipped role: {role['name']} (possibly @everyone)")
-                    break
-                else:
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to delete role: {role['name']} = {delete_response.status_code}")
-                    break
+        for role in response.json():
+            if role['id'] == p_id:
+                continue
+            if role.get('managed'):
+                log(y, "x", f"Skipped managed role: {role['name']}")
+                continue
+            d = api("DELETE", f"/guilds/{p_id}/roles/{role['id']}")
+            if d.status_code in (200, 204):
+                log(g, "+", f"Deleted role: {role['name']}")
+            else:
+                log(r, "-", f"Failed to delete role: {role['name']} = {d.status_code}")
     else:
-        t = current_time()
-        print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to fetch roles: {response.status_code}")
+        log(r, "-", f"Failed to fetch roles: {response.status_code}")
 
-    guild_url = f"https://discord.com/api/v9/guilds/{g_id}"
-    response = requests.get(guild_url, headers=headers)
-
+    response = api("GET", f"/guilds/{g_id}")
     if response.status_code == 200:
         guild = response.json()
-        guild_name_url = f"https://discord.com/api/v9/guilds/{p_id}"
-        if guild['icon']:
-            icon_url = f"https://cdn.discordapp.com/icons/{g_id}/{guild['icon']}.png"
-            icon_response = requests.get(icon_url)
-
+        icon_data = None
+        if guild.get('icon'):
+            ext = "gif" if guild['icon'].startswith("a_") else "png"
+            icon_response = requests.get(
+                f"{CDN}/icons/{g_id}/{guild['icon']}.{ext}?size=1024",
+                headers={"User-Agent": USER_AGENT}, timeout=30)
             if icon_response.status_code == 200:
-                icon_base64 = base64.b64encode(icon_response.content).decode('utf-8')
-                icon_data = f"data:image/png;base64,{icon_base64}"
+                mime = "image/gif" if ext == "gif" else "image/png"
+                icon_data = f"data:{mime};base64," + base64.b64encode(icon_response.content).decode()
             else:
-                t = current_time()
-                print(f"                {b}[{w}{t}{b}]{w} {y}[x]{w} Failed to fetch guild icon. Continuing without icon.")
-                icon_data = None
+                log(y, "x", "Failed to fetch guild icon. Continuing without icon.")
         else:
-            t = current_time()
-            print(f"                {b}[{w}{t}{b}]{w} {y}[x]{w} Guild has no icon. Continuing without icon.")
-            icon_data = None
+            log(y, "x", "Guild has no icon. Continuing without icon.")
 
-        payload = {
-            "name": guild['name']
-        }
+        payload = {"name": guild['name']}
         if icon_data:
             payload["icon"] = icon_data
 
-        change_name = requests.patch(guild_name_url, headers=headers, json=payload)
-        if change_name.status_code == 200:
-            t = current_time()
-            print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Changed server name to: {guild['name']}")
+        change = api("PATCH", f"/guilds/{p_id}", json=payload)
+        if change.status_code == 200:
+            log(g, "+", f"Changed server name to: {guild['name']}")
             if icon_data:
-                t = current_time()
-                print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Updated the server icon.")
+                log(g, "+", "Updated the server icon.")
         else:
-            t = current_time()
-            print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to change server name/icon: {change_name.status_code}")
+            log(r, "-", f"Failed to change server name/icon: {change.status_code}")
     else:
-        t = current_time()
-        print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to fetch guild details: {response.status_code}")
+        log(r, "-", f"Failed to fetch guild details: {response.status_code}")
 
-    get_channels_url = f"https://discord.com/api/v9/guilds/{g_id}/channels"
-    response = requests.get(get_channels_url, headers=headers)
-
+    role_map = {g_id: p_id}
+    response = api("GET", f"/guilds/{g_id}/roles")
     if response.status_code == 200:
-        source_channels = response.json()
-        
-        categories = [ch for ch in source_channels if ch['type'] == 4]
-        channels = [ch for ch in source_channels if ch['type'] != 4]
-
-        categories.sort(key=lambda x: x['position'])
-        channels.sort(key=lambda x: x['position'])
-
-        created_categories = {}
-        for category in categories:
-            payload = {
-                "name": category['name'],
-                "type": 4,  
-                "permission_overwrites": category['permission_overwrites']
-            }
-            create_category_url = f"https://discord.com/api/v9/guilds/{p_id}/channels"
-            while True:
-                create_response = requests.post(create_category_url, headers=headers, json=payload)
-                if create_response.status_code == 201:
-                    created_category = create_response.json()
-                    created_categories[category['id']] = created_category['id']  
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Created category: {category['name']}")
-                    break
-                elif create_response.status_code == 429:
-                    retry_after = int(create_response.headers.get("Retry-After", 1))
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {y}[x]{w} Rate-limited. Retrying after {retry_after} seconds")
-                    time.sleep(retry_after)
-                else:
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to create category: {category['name']} = {create_response.status_code}")
-                    break
-
-        for channel in channels:
-            payload = {
-                "name": channel['name'],
-                "type": channel['type'],
-                "parent_id": created_categories.get(channel['parent_id']),  
-                "permission_overwrites": channel['permission_overwrites'],
-                "topic": channel.get('topic', ''),
-                "nsfw": channel.get('nsfw', False),
-                "rate_limit_per_user": channel.get('rate_limit_per_user', 0),
-            }
-            create_channel_url = f"https://discord.com/api/v9/guilds/{p_id}/channels"
-            while True:
-                create_response = requests.post(create_channel_url, headers=headers, json=payload)
-                if create_response.status_code == 201:
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Created channel: {channel['name']}")
-                    break
-                elif create_response.status_code == 429:
-                    retry_after = int(create_response.headers.get("Retry-After", 1))
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {y}[x]{w} Ratelimited. Retrying after {retry_after} seconds")
-                    time.sleep(retry_after)
-                else:
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to create channel: {channel['name']} = {create_response.status_code}")
-                    break
-    else:
-        t = current_time()
-        print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to fetch channels from source guild: {response.status_code}")
-
-    get_roles_url = f"https://discord.com/api/v9/guilds/{g_id}/roles"
-    response = requests.get(get_roles_url, headers=headers)
-
-    if response.status_code == 200:
-        source_roles = response.json()
-        source_roles.sort(key=lambda x: x['position'], reverse=True)
+        source_roles = sorted(response.json(), key=lambda x: x['position'], reverse=True)
 
         for role in source_roles:
+            if role['id'] == g_id:
+
+                api("PATCH", f"/guilds/{p_id}/roles/{p_id}", json={"permissions": role['permissions']})
+                continue
+            if role.get('managed'):
+                continue
+
             payload = {
                 "name": role['name'],
                 "permissions": role['permissions'],
                 "color": role['color'],
                 "hoist": role['hoist'],
-                "mentionable": role['mentionable']
+                "mentionable": role['mentionable'],
             }
-            create_role_url = f"https://discord.com/api/v9/guilds/{p_id}/roles"
-            while True:
-                create_response = requests.post(create_role_url, headers=headers, json=payload)
-                if create_response.status_code in [201, 200]:
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Created role: {role['name']}")
-                    break
-                elif create_response.status_code == 429:
-                    retry_after = int(create_response.headers.get("Retry-After", 1))
-                    print(f"                {b}[{w}{t}{b}]{w} {y}[x]{w} Rate-limited. Retrying after {retry_after} seconds")
-                    time.sleep(retry_after)
-                else:
-                    t = current_time()
-                    print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to create role: {role['name']} {create_response.status_code}")
-                    break
-            time.sleep(2)
+            created = api("POST", f"/guilds/{p_id}/roles", json=payload)
+            if created.status_code in (200, 201):
+                role_map[role['id']] = created.json()['id']
+                log(g, "+", f"Created role: {role['name']}")
+            else:
+                log(r, "-", f"Failed to create role: {role['name']} {created.status_code}")
+            time.sleep(1)
     else:
-        t = current_time()
-        print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to fetch roles from source guild: {response.status_code}")
+        log(r, "-", f"Failed to fetch roles from source guild: {response.status_code}")
+
+    def map_overwrites(overwrites):
+        out = []
+        for ow in overwrites or []:
+            if ow['type'] == 0:
+                new_id = role_map.get(ow['id'])
+                if new_id:
+                    out.append({**ow, "id": new_id})
+
+        return out
+
+    response = api("GET", f"/guilds/{g_id}/channels")
+    if response.status_code != 200:
+        log(r, "-", f"Failed to fetch channels from source guild: {response.status_code}")
+        return
+
+    source_channels = response.json()
+    categories = sorted((c for c in source_channels if c['type'] == 4), key=lambda x: x['position'])
+    others = sorted((c for c in source_channels if c['type'] != 4), key=lambda x: x['position'])
+
+    created_categories = {}
+    for category in categories:
+        payload = {
+            "name": category['name'],
+            "type": 4,
+            "permission_overwrites": map_overwrites(category.get('permission_overwrites')),
+        }
+        created = api("POST", f"/guilds/{p_id}/channels", json=payload)
+        if created.status_code in (200, 201):
+            created_categories[category['id']] = created.json()['id']
+            log(g, "+", f"Created category: {category['name']}")
+        else:
+            log(r, "-", f"Failed to create category: {category['name']} = {created.status_code}")
+
+    for channel in others:
+        payload = {
+            "name": channel['name'],
+            "type": channel['type'],
+            "permission_overwrites": map_overwrites(channel.get('permission_overwrites')),
+        }
+        if channel.get('parent_id') in created_categories:
+            payload["parent_id"] = created_categories[channel['parent_id']]
+
+        if channel['type'] in (0, 5, 15, 16):
+            payload["topic"] = channel.get('topic') or ""
+            payload["nsfw"] = channel.get('nsfw', False)
+            payload["rate_limit_per_user"] = channel.get('rate_limit_per_user', 0)
+
+        if channel['type'] in (2, 13):
+            payload["bitrate"] = min(channel.get('bitrate', 64000), 96000)
+            payload["user_limit"] = channel.get('user_limit', 0)
+            payload["nsfw"] = channel.get('nsfw', False)
+
+        created = api("POST", f"/guilds/{p_id}/channels", json=payload)
+        if created.status_code in (200, 201):
+            log(g, "+", f"Created channel: {channel['name']}")
+        else:
+            log(r, "-", f"Failed to create channel: {channel['name']} = {created.status_code}")
+
+    input(f"                {b}[{w}#{b}]{w} press ENTER to go back.")

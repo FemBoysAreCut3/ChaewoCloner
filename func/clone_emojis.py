@@ -1,5 +1,4 @@
 from utils.innit import *
-import time
 
 async def emoji_cloner():
     clear()
@@ -8,52 +7,38 @@ async def emoji_cloner():
     clear()
     logo()
 
-    with open('token.txt') as f:
-        token = f.readline().strip()
+    response = api("GET", f"/guilds/{guild_id}/emojis")
+    if response.status_code != 200:
+        print(f"                {b}[{w}{current_time()}{b}]{w} {r}[-]{w} Failed to Fetch Emojis: {response.status_code}")
+        time.sleep(2)
+        return
 
-    headers = {
-        "Authorization": token,
-        "User-Agent": "DiscordBot (https://discord.com, v1)"
-    }
+    guild_response = api("GET", f"/guilds/{guild_id}")
+    if guild_response.status_code != 200:
+        print(f"                {b}[{w}{current_time()}{b}]{w} {r}[-]{w} Failed to fetch guild: {guild_response.status_code}")
+        time.sleep(2)
+        return
 
-    emojis_url = f"https://discord.com/api/v10/guilds/{guild_id}/emojis"
-    response = requests.get(emojis_url, headers=headers)
+    guild_name = guild_response.json().get("name", "UnknownGuild")
+    guild_name = "".join(c if c not in '\\/:*?"<>|' else "_" for c in guild_name)
+    folder_name = f"emojis_{guild_name}"
+    os.makedirs(folder_name, exist_ok=True)
 
-    if response.status_code in [200, 204]:
-        data = response.json()
-        guild_info_url = f"https://discord.com/api/v10/guilds/{guild_id}"
-        guild_info_response = requests.get(guild_info_url, headers=headers)
+    for emoji in response.json():
+        emoji_id = emoji['id']
+        emoji_name = emoji['name'].replace("/", "_")
 
-        if guild_info_response.status_code in [200, 204]:
-            guild_name = guild_info_response.json().get("name", "UnknownGuild").replace("/", "_")
-            folder_name = f"emojis_{guild_name}"
+        ext = "gif" if emoji.get('animated') else "png"
+        file_url = f"{CDN}/emojis/{emoji_id}.{ext}?size=128&quality=lossless"
 
-            if not os.path.exists(folder_name):
-                os.mkdir(folder_name)
-
-            for emoji in data:
-                emoji_id = emoji['id']
-                emoji_name = emoji['name'].replace("/", "_")
-                is_animated = emoji.get('animated', False)
-
-                file_url = f"https://cdn.discordapp.com/emojis/{emoji_id}.webp?size=56"
-                if is_animated:
-                    file_url += "&animated=true"
-                    file_ext = "webp"
-                else:
-                    file_ext = "webp"
-
-                num = random.randint(1, 20000)
-                file_path = os.path.join(folder_name, f"{num}.{file_ext}")
-
-                with open(file_path, "wb") as f:
-                    emoji_data = requests.get(file_url, headers=headers).content
-                    f.write(emoji_data)
-                t = current_time()
-                print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Downloaded: {emoji_name} ({emoji_id})")
-        else:
-            t = current_time()
-            print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to create Folder")
-    else:
+        data = requests.get(file_url, headers={"User-Agent": USER_AGENT}, timeout=30)
         t = current_time()
-        print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to Fetch Emojis")
+        if data.status_code != 200:
+            print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed: {emoji_name} ({emoji_id}) {data.status_code}")
+            continue
+
+        with open(os.path.join(folder_name, f"{emoji_name}_{emoji_id}.{ext}"), "wb") as f:
+            f.write(data.content)
+        print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Downloaded: {emoji_name} ({emoji_id})")
+
+    input(f"                {b}[{w}#{b}]{w} press ENTER to go back.")

@@ -1,5 +1,6 @@
 from utils.innit import *
-import time
+
+STICKER_EXT = {1: "png", 2: "png", 3: "json", 4: "gif"}
 
 async def sticker_cloner():
     clear()
@@ -8,53 +9,44 @@ async def sticker_cloner():
     clear()
     logo()
 
-    with open('token.txt') as f:
-        token = f.readline().strip()
+    response = api("GET", f"/guilds/{guild_id}/stickers")
+    if response.status_code != 200:
+        print(f"                {b}[{w}{current_time()}{b}]{w} {r}[-]{w} Failed to Fetch Stickers: {response.status_code}")
+        time.sleep(2)
+        return
 
-    headers = {
-        "Authorization": token,
-        "User-Agent": "DiscordBot (https://discord.com, v1)"
-    }
+    guild_response = api("GET", f"/guilds/{guild_id}")
+    if guild_response.status_code != 200:
+        print(f"                {b}[{w}{current_time()}{b}]{w} {r}[-]{w} Failed to fetch guild: {guild_response.status_code}")
+        time.sleep(2)
+        return
 
-    stickers_url = f"https://discord.com/api/v10/guilds/{guild_id}/stickers"
-    response = requests.get(stickers_url, headers=headers)
+    guild_name = guild_response.json().get("name", "UnknownGuild")
+    guild_name = "".join(c if c not in '\\/:*?"<>|' else "_" for c in guild_name)
+    folder_name = f"stickers_{guild_name}"
+    os.makedirs(folder_name, exist_ok=True)
 
-    if response.status_code in [200, 204]:
-        data = response.json()
-        guild_info_url = f"https://discord.com/api/v10/guilds/{guild_id}"
-        guild_info_response = requests.get(guild_info_url, headers=headers)
+    for sticker in response.json():
+        sticker_id = sticker['id']
+        sticker_name = sticker['name'].replace("/", "_")
+        fmt = sticker['format_type']
+        ext = STICKER_EXT.get(fmt, "png")
 
-        if guild_info_response.status_code in [200, 204]:
-            guild_name = guild_info_response.json().get("name", "UnknownGuild").replace("/", "_")
-            folder_name = f"stickers_{guild_name}"
-
-            if not os.path.exists(folder_name):
-                os.mkdir(folder_name)
-
-            for sticker in data:
-                sticker_id = sticker['id']
-                sticker_name = sticker['name'].replace("/", "_")
-
-                if sticker['format_type'] == 4:
-                    file_url = f"https://media.discordapp.net/stickers/{sticker_id}.gif?size=240"
-                    file_ext = "gif"
-                elif sticker['format_type'] == 1:
-                    file_url = f"https://media.discordapp.net/stickers/{sticker_id}.webp?size=240&quality=lossless"
-                    file_ext = "webp"
-                else:
-                    continue
-
-                num = random.randint(1, 20000)
-                file_path = os.path.join(folder_name, f"{num}.{file_ext}")
-
-                with open(file_path, "wb") as f:
-                    sticker_data = requests.get(file_url, headers=headers).content
-                    f.write(sticker_data)
-                t = current_time()
-                print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Downloaded: {sticker_name} ({sticker_id})")
+        if fmt == 4:
+            file_url = f"https://media.discordapp.net/stickers/{sticker_id}.gif?size=320"
+        elif fmt == 3:
+            file_url = f"{CDN}/stickers/{sticker_id}.json"
         else:
-            t = current_time()
-            print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to create Folder")
-    else:
+            file_url = f"{CDN}/stickers/{sticker_id}.png?size=320"
+
+        data = requests.get(file_url, headers={"User-Agent": USER_AGENT}, timeout=30)
         t = current_time()
-        print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed to Fetch Stickers")
+        if data.status_code != 200:
+            print(f"                {b}[{w}{t}{b}]{w} {r}[-]{w} Failed: {sticker_name} ({sticker_id}) {data.status_code}")
+            continue
+
+        with open(os.path.join(folder_name, f"{sticker_name}_{sticker_id}.{ext}"), "wb") as f:
+            f.write(data.content)
+        print(f"                {b}[{w}{t}{b}]{w} {g}[+]{w} Downloaded: {sticker_name} ({sticker_id})")
+
+    input(f"                {b}[{w}#{b}]{w} press ENTER to go back.")
